@@ -25,10 +25,30 @@ const FEE_MODULE = getAddress("0xE3f18aCc55091e2c48d883fc8C8413319d4Ab7b0");
 const TARGET_ADDRESS = getAddress("0x557bEd924A1bB6F62842C5742d1dc789B8D480d4");
 const ADDRESS_NEEDLE = TARGET_ADDRESS.slice(2).toLowerCase();
 const MATCH_SELECTOR = "0x2287e350";
+const HASH_CACHE_SIZE = 1000;
 
 const matchOrdersAbi = parseAbi([
 	"function matchOrders((uint256 salt,address maker,address signer,address taker,uint256 tokenId,uint256 makerAmount,uint256 takerAmount,uint256 expiration,uint256 nonce,uint256 feeRateBps,uint8 side,uint8 signatureType,bytes signature) takerOrder,(uint256 salt,address maker,address signer,address taker,uint256 tokenId,uint256 makerAmount,uint256 takerAmount,uint256 expiration,uint256 nonce,uint256 feeRateBps,uint8 side,uint8 signatureType,bytes signature)[] makerOrders,uint256 takerFillAmount,uint256 takerReceiveAmount,uint256[] makerFillAmounts,uint256 takerFeeAmount,uint256[] makerFeeAmounts)",
 ]);
+
+function makeHashCache() {
+	const deque: string[] = [];
+	const set = new Set<string>();
+
+	return {
+		seen: (hash: string | undefined) => {
+			if (!hash) return false;
+			if (set.has(hash)) return true;
+			deque.push(hash);
+			set.add(hash);
+			if (deque.length > HASH_CACHE_SIZE) {
+				const oldest = deque.shift();
+				if (oldest) set.delete(oldest);
+			}
+			return false;
+		},
+	};
+}
 
 function makeTargets(config: AppConfig): Set<string> {
 	return new Set([FEE_MODULE, ...config.targets.map((t) => getAddress(t))]);
@@ -87,6 +107,8 @@ function startAlchemyPendingWatcher(
 	logger: Logger,
 	bus: EventBus,
 ): () => void {
+	const cache = makeHashCache();
+
 	type SubResponse = { unsubscribe?: () => void };
 	type SubArgs = {
 		params: unknown[];
@@ -121,19 +143,24 @@ function startAlchemyPendingWatcher(
 
 				const decoded = input ? decodeMatchOrders(input) : null;
 				const info = decoded ? inferRoleAndSide(decoded) : null;
+				const takerFill = decoded?.args?.[2];
+				const takerReceive = decoded?.args?.[3];
+
+				const hash = (tx as { hash?: string }).hash;
+				if (cache.seen(hash)) return;
 
 				logger.info("pending tx to target (alchemy)", {
-					hash: (tx as { hash?: string }).hash,
-					from: (tx as { from?: string }).from,
-					valueWei: (tx as { value?: unknown }).value,
+					hash,
 					role: info?.role,
 					side: info?.side,
 					tokenId: info?.tokenId,
+					takerFill: takerFill ? String(takerFill) : undefined,
+					takerReceive: takerReceive ? String(takerReceive) : undefined,
 				});
 
 				bus.emit({
 					source: "onchain",
-					hash: (tx as { hash?: string }).hash,
+					hash,
 					raw: tx,
 				});
 			},
@@ -158,6 +185,8 @@ function startStandardPendingWatcher(
 	logger: Logger,
 	bus: EventBus,
 ): () => void {
+	const cache = makeHashCache();
+
 	return client.watchPendingTransactions({
 		includeTransactions: true,
 		onTransactions: (txs: PendingTx[]) => {
@@ -171,14 +200,18 @@ function startStandardPendingWatcher(
 
 				const decoded = input ? decodeMatchOrders(input) : null;
 				const info = decoded ? inferRoleAndSide(decoded) : null;
+				const takerFill = decoded?.args?.[2];
+				const takerReceive = decoded?.args?.[3];
+
+				if (cache.seen(tx.hash)) continue;
 
 				logger.info("pending tx to target", {
 					hash: tx.hash,
-					from: tx.from,
-					valueWei: tx.value ? tx.value.toString() : undefined,
 					role: info?.role,
 					side: info?.side,
 					tokenId: info?.tokenId,
+					takerFill: takerFill ? String(takerFill) : undefined,
+					takerReceive: takerReceive ? String(takerReceive) : undefined,
 				});
 
 				bus.emit({ source: "onchain", hash: tx.hash, raw: tx });
