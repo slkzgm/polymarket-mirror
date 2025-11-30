@@ -91,8 +91,12 @@ function computeMakerFill(
 	fillAmount: bigint,
 ): { shares?: bigint; usdc?: bigint } {
 	const side = (order as { side?: number }).side;
-	const makerAmount = safeBigInt((order as { makerAmount?: bigint }).makerAmount);
-	const takerAmount = safeBigInt((order as { takerAmount?: bigint }).takerAmount);
+	const makerAmount = safeBigInt(
+		(order as { makerAmount?: bigint }).makerAmount,
+	);
+	const takerAmount = safeBigInt(
+		(order as { takerAmount?: bigint }).takerAmount,
+	);
 	if (!makerAmount || !takerAmount || makerAmount === 0n) {
 		return {
 			shares: side === 1 ? fillAmount : undefined,
@@ -143,7 +147,11 @@ export function computeFillForTarget(
 				(entry.order as { signer?: string }).signer?.toLowerCase() === target,
 		);
 
-	const role = takerRole ? "TAKER" : makerMatches.length > 0 ? "MAKER" : "UNKNOWN";
+	const role = takerRole
+		? "TAKER"
+		: makerMatches.length > 0
+			? "MAKER"
+			: "UNKNOWN";
 	const sideVal = (takerOrder as { side?: number }).side;
 	const side =
 		sideVal === 0 ? "BUY" : sideVal === 1 ? "SELL" : ("UNKNOWN" as const);
@@ -153,8 +161,12 @@ export function computeFillForTarget(
 	let usdc: bigint | undefined;
 
 	if (role === "TAKER") {
-		const makerAmount = safeBigInt((takerOrder as { makerAmount?: bigint }).makerAmount);
-		const takerAmount = safeBigInt((takerOrder as { takerAmount?: bigint }).takerAmount);
+		const makerAmount = safeBigInt(
+			(takerOrder as { makerAmount?: bigint }).makerAmount,
+		);
+		const takerAmount = safeBigInt(
+			(takerOrder as { takerAmount?: bigint }).takerAmount,
+		);
 		const fill = safeBigInt(takerFillAmount);
 		const receive = safeBigInt(takerReceiveAmount);
 

@@ -1,4 +1,4 @@
-import type { QueryParams, GammaClient } from "./client";
+import type { GammaClient, QueryParams } from "./client";
 import type {
 	GammaEvent,
 	GammaEventRaw,
@@ -144,7 +144,10 @@ export async function listMarkets(
 	client: GammaClient,
 	params?: ListMarketsParams,
 ): Promise<GammaMarket[]> {
-	const raw = await client.fetchJson<GammaMarketRaw[]>("/markets", buildMarketQuery(params));
+	const raw = await client.fetchJson<GammaMarketRaw[]>(
+		"/markets",
+		buildMarketQuery(params),
+	);
 	return raw.map(normalizeMarket);
 }
 
@@ -192,7 +195,10 @@ export async function listEvents(
 	client: GammaClient,
 	params?: ListEventsParams,
 ): Promise<GammaEvent[]> {
-	const raw = await client.fetchJson<GammaEventRaw[]>("/events", buildEventQuery(params));
+	const raw = await client.fetchJson<GammaEventRaw[]>(
+		"/events",
+		buildEventQuery(params),
+	);
 	return raw.map(normalizeEvent);
 }
 

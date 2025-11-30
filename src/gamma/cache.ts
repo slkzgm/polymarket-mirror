@@ -6,7 +6,11 @@ type CacheEntry<T> = {
 export type TtlCache<T> = {
 	get: (key: string) => T | undefined;
 	set: (key: string, value: T, ttlMs: number) => T;
-	getOrSet: (key: string, ttlMs: number, producer: () => Promise<T>) => Promise<T>;
+	getOrSet: (
+		key: string,
+		ttlMs: number,
+		producer: () => Promise<T>,
+	) => Promise<T>;
 	delete: (key: string) => void;
 	clear: () => void;
 	size: () => number;

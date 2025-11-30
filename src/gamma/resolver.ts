@@ -1,12 +1,12 @@
+import type { Logger } from "../logger";
 import { createTtlCache } from "./cache";
+import type { GammaClient } from "./client";
 import {
 	getMarketByClobTokenId,
 	getMarketById,
 	getMarketBySlug,
 } from "./markets";
-import type { GammaClient } from "./client";
 import type { GammaMarket } from "./types";
-import type { Logger } from "../logger";
 
 export type GammaResolverOptions = {
 	ttlMs?: number;
@@ -101,7 +101,10 @@ export function createGammaResolver(
 					() => null,
 				);
 				if (market && !market.clobTokenIds?.includes(tokenId)) {
-					return { ...market, clobTokenIds: [...(market.clobTokenIds ?? []), tokenId] };
+					return {
+						...market,
+						clobTokenIds: [...(market.clobTokenIds ?? []), tokenId],
+					};
 				}
 				return market;
 			}),
