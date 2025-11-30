@@ -53,6 +53,7 @@ function startAlchemyPendingWatcher(
 	targets: Set<string>,
 	logger: Logger,
 	bus: EventBus,
+	logPending: boolean,
 ): () => void {
 	const cache = makeHashCache();
 
@@ -96,14 +97,16 @@ function startAlchemyPendingWatcher(
 				const hash = (tx as { hash?: string }).hash;
 				if (cache.seen(hash)) return;
 
-				logger.info("pending tx to target (alchemy)", {
-					hash,
-					role: info?.role,
-					side: info?.side,
-					tokenId: info?.tokenId,
-					takerFill: takerFill ? String(takerFill) : undefined,
-					takerReceive: takerReceive ? String(takerReceive) : undefined,
-				});
+				if (logPending) {
+					logger.info("pending tx to target (alchemy)", {
+						hash,
+						role: info?.role,
+						side: info?.side,
+						tokenId: info?.tokenId,
+						takerFill: takerFill ? String(takerFill) : undefined,
+						takerReceive: takerReceive ? String(takerReceive) : undefined,
+					});
+				}
 				bus.emit({
 					source: "onchain",
 					hash,
@@ -138,6 +141,7 @@ function startStandardPendingWatcher(
 	targets: Set<string>,
 	logger: Logger,
 	bus: EventBus,
+	logPending: boolean,
 ): () => void {
 	const cache = makeHashCache();
 
@@ -158,6 +162,17 @@ function startStandardPendingWatcher(
 				const takerReceive = decoded?.args?.[3];
 
 				if (cache.seen(tx.hash)) continue;
+
+				if (logPending) {
+					logger.info("pending tx to target", {
+						hash: tx.hash,
+						role: info?.role,
+						side: info?.side,
+						tokenId: info?.tokenId,
+						takerFill: takerFill ? String(takerFill) : undefined,
+						takerReceive: takerReceive ? String(takerReceive) : undefined,
+					});
+				}
 
 				bus.emit({
 					source: "onchain",
@@ -184,6 +199,7 @@ export function startOnchainWatcher(
 	logger: Logger,
 	bus: EventBus,
 ): WatcherHandle {
+	const logPending = config.logFormat !== "readable";
 	const client = createPublicClient({
 		chain: polygon,
 		transport: webSocket(config.rpcWssUrl),
@@ -208,9 +224,13 @@ export function startOnchainWatcher(
 		client.transport.type === "webSocket" &&
 		"subscribe" in client.transport
 	) {
-		stopFns.push(startAlchemyPendingWatcher(client, targets, logger, bus));
+		stopFns.push(
+			startAlchemyPendingWatcher(client, targets, logger, bus, logPending),
+		);
 	} else {
-		stopFns.push(startStandardPendingWatcher(client, targets, logger, bus));
+		stopFns.push(
+			startStandardPendingWatcher(client, targets, logger, bus, logPending),
+		);
 	}
 
 	const unwatchBlocks = client.watchBlockNumber({
