@@ -1,14 +1,13 @@
-import {
-	createPublicClient,
-	decodeFunctionData,
-	getAddress,
-	parseAbi,
-	webSocket,
-} from "viem";
+import { createPublicClient, getAddress, webSocket } from "viem";
 import { polygon } from "viem/chains";
 import type { AppConfig } from "../config";
 import type { EventBus } from "../events/bus";
 import type { Logger } from "../logger";
+import {
+	decodeMatchOrders,
+	inferRoleAndSide,
+	matchesCalldata,
+} from "./decoder";
 
 export type WatcherHandle = { stop: () => void };
 
@@ -24,12 +23,7 @@ type PendingTx = {
 const FEE_MODULE = getAddress("0xE3f18aCc55091e2c48d883fc8C8413319d4Ab7b0");
 const TARGET_ADDRESS = getAddress("0x557bEd924A1bB6F62842C5742d1dc789B8D480d4");
 const ADDRESS_NEEDLE = TARGET_ADDRESS.slice(2).toLowerCase();
-const MATCH_SELECTOR = "0x2287e350";
 const HASH_CACHE_SIZE = 1000;
-
-const matchOrdersAbi = parseAbi([
-	"function matchOrders((uint256 salt,address maker,address signer,address taker,uint256 tokenId,uint256 makerAmount,uint256 takerAmount,uint256 expiration,uint256 nonce,uint256 feeRateBps,uint8 side,uint8 signatureType,bytes signature) takerOrder,(uint256 salt,address maker,address signer,address taker,uint256 tokenId,uint256 makerAmount,uint256 takerAmount,uint256 expiration,uint256 nonce,uint256 feeRateBps,uint8 side,uint8 signatureType,bytes signature)[] makerOrders,uint256 takerFillAmount,uint256 takerReceiveAmount,uint256[] makerFillAmounts,uint256 takerFeeAmount,uint256[] makerFeeAmounts)",
-]);
 
 function makeHashCache() {
 	const deque: string[] = [];
@@ -52,53 +46,6 @@ function makeHashCache() {
 
 function makeTargets(config: AppConfig): Set<string> {
 	return new Set([FEE_MODULE, ...config.targets.map((t) => getAddress(t))]);
-}
-
-function matchesCalldata(rawData: unknown): boolean {
-	if (!rawData || typeof rawData !== "string") return false;
-	const data = rawData.toLowerCase();
-	if (!data.startsWith(MATCH_SELECTOR)) return false;
-	return data.includes(ADDRESS_NEEDLE);
-}
-
-function decodeMatchOrders(data: string) {
-	try {
-		return decodeFunctionData({ abi: matchOrdersAbi, data });
-	} catch {
-		return null;
-	}
-}
-
-type MatchDecoded = {
-	functionName: string;
-	args?: [
-		takerOrder: Record<string, unknown>,
-		makerOrders: Array<Record<string, unknown>>,
-	];
-};
-
-function inferRoleAndSide(decoded: MatchDecoded | null) {
-	if (!decoded || decoded.functionName !== "matchOrders") return null;
-	const takerOrder = decoded.args?.[0] ?? {};
-	const makerOrders = decoded.args?.[1] ?? [];
-
-	const targetLower = TARGET_ADDRESS.toLowerCase();
-	const takerMaker = takerOrder?.maker?.toLowerCase();
-	const takerSigner = takerOrder?.signer?.toLowerCase();
-	const takerRole =
-		takerMaker === targetLower || takerSigner === targetLower ? "TAKER" : null;
-
-	const makerHit = makerOrders.find(
-		(m) => m?.maker && m.maker.toLowerCase() === targetLower,
-	);
-	const makerRole = makerHit ? "MAKER" : null;
-
-	const role = takerRole ?? makerRole ?? "UNKNOWN";
-	const sideValue = takerOrder?.side;
-	const side = sideValue === 0 ? "BUY" : sideValue === 1 ? "SELL" : "UNKNOWN";
-	const tokenId = takerOrder?.tokenId ? String(takerOrder.tokenId) : undefined;
-
-	return { role, side, tokenId };
 }
 
 function startAlchemyPendingWatcher(
@@ -139,10 +86,10 @@ function startAlchemyPendingWatcher(
 				const input =
 					(tx as { input?: string; data?: string }).input ??
 					(tx as { input?: string; data?: string }).data;
-				if (!matchesCalldata(input)) return;
+				if (!matchesCalldata(input, ADDRESS_NEEDLE)) return;
 
 				const decoded = input ? decodeMatchOrders(input) : null;
-				const info = decoded ? inferRoleAndSide(decoded) : null;
+				const info = decoded ? inferRoleAndSide(decoded, TARGET_ADDRESS) : null;
 				const takerFill = decoded?.args?.[2];
 				const takerReceive = decoded?.args?.[3];
 
@@ -157,11 +104,18 @@ function startAlchemyPendingWatcher(
 					takerFill: takerFill ? String(takerFill) : undefined,
 					takerReceive: takerReceive ? String(takerReceive) : undefined,
 				});
-
 				bus.emit({
 					source: "onchain",
 					hash,
 					raw: tx,
+					decoded,
+					info: {
+						role: info?.role,
+						side: info?.side,
+						tokenId: info?.tokenId,
+						takerFill: takerFill ? String(takerFill) : undefined,
+						takerReceive: takerReceive ? String(takerReceive) : undefined,
+					},
 				});
 			},
 			onError: (err: unknown) =>
@@ -196,25 +150,28 @@ function startStandardPendingWatcher(
 				if (!targets.has(to)) continue;
 
 				const input = tx.input ?? tx.data;
-				if (!matchesCalldata(input)) continue;
+				if (!matchesCalldata(input, ADDRESS_NEEDLE)) continue;
 
 				const decoded = input ? decodeMatchOrders(input) : null;
-				const info = decoded ? inferRoleAndSide(decoded) : null;
+				const info = decoded ? inferRoleAndSide(decoded, TARGET_ADDRESS) : null;
 				const takerFill = decoded?.args?.[2];
 				const takerReceive = decoded?.args?.[3];
 
 				if (cache.seen(tx.hash)) continue;
 
-				logger.info("pending tx to target", {
+				bus.emit({
+					source: "onchain",
 					hash: tx.hash,
-					role: info?.role,
-					side: info?.side,
-					tokenId: info?.tokenId,
-					takerFill: takerFill ? String(takerFill) : undefined,
-					takerReceive: takerReceive ? String(takerReceive) : undefined,
+					raw: tx,
+					decoded,
+					info: {
+						role: info?.role,
+						side: info?.side,
+						tokenId: info?.tokenId,
+						takerFill: takerFill ? String(takerFill) : undefined,
+						takerReceive: takerReceive ? String(takerReceive) : undefined,
+					},
 				});
-
-				bus.emit({ source: "onchain", hash: tx.hash, raw: tx });
 			}
 		},
 		onError: (err: unknown) =>

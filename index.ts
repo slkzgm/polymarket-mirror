@@ -15,7 +15,7 @@ async function main() {
 
 	const onchain = startOnchainWatcher(config, logger, bus);
 	const clob = startClobWatcher(config, logger, bus);
-	const detachStrategy = attachStrategy(bus, logger);
+	const detachStrategy = attachStrategy(bus, logger, config);
 
 	const shutdown = () => {
 		detachStrategy();
