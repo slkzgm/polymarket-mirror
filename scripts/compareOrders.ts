@@ -47,7 +47,9 @@ function buildAmounts(_side: OrderSide, price: number, sizeTokens: number) {
 async function main() {
 	const tokenId = process.argv[2];
 	if (!tokenId) {
-		console.error("Usage: bun run scripts/compareOrders.ts <tokenId> [price] [usdAmount]");
+		console.error(
+			"Usage: bun run scripts/compareOrders.ts <tokenId> [price] [usdAmount]",
+		);
 		process.exit(1);
 	}
 	const priceInput = process.argv[3] ? Number(process.argv[3]) : undefined;
@@ -59,7 +61,9 @@ async function main() {
 	const apiKey = Bun.env.CLOB_API_KEY;
 	const apiSecret = Bun.env.CLOB_API_SECRET;
 	const apiPassphrase = Bun.env.CLOB_API_PASSPHRASE;
-	const restUrl = (Bun.env.CLOB_REST_URL || "https://clob.polymarket.com").replace(/\/$/, "");
+	const restUrl = (
+		Bun.env.CLOB_REST_URL || "https://clob.polymarket.com"
+	).replace(/\/$/, "");
 	const rpc = Bun.env.POLYGON_RPC_WSS || "";
 
 	if (!privateKey || !funder || !apiKey || !apiSecret || !apiPassphrase) {
@@ -127,7 +131,8 @@ async function main() {
 
 	// -------- viem path: measure sign + post --------
 	const salt =
-		BigInt(crypto.randomBytes(8).readBigUInt64BE()) * 1000000n + BigInt(Date.now());
+		BigInt(crypto.randomBytes(8).readBigUInt64BE()) * 1000000n +
+		BigInt(Date.now());
 	const order = {
 		salt,
 		maker: funder as `0x${string}`,
@@ -195,11 +200,25 @@ async function main() {
 	const v3 = Date.now();
 	const respViemText = await respViem.text();
 
-	console.log("shared_meta_ms", { book: tMeta1 - tMeta0, price, sizeTokens, tickSize, minOrderSize });
-	console.log("clob-client timings_ms", { create: c1 - c0, post: c2 - c1, total: c2 - c0 });
+	console.log("shared_meta_ms", {
+		book: tMeta1 - tMeta0,
+		price,
+		sizeTokens,
+		tickSize,
+		minOrderSize,
+	});
+	console.log("clob-client timings_ms", {
+		create: c1 - c0,
+		post: c2 - c1,
+		total: c2 - c0,
+	});
 	console.log("clob-client resp", respClient);
 
-	console.log("viem timings_ms", { sign: v1 - v0, post: v3 - v2, total: v3 - v0 });
+	console.log("viem timings_ms", {
+		sign: v1 - v0,
+		post: v3 - v2,
+		total: v3 - v0,
+	});
 	console.log("viem resp", respViem.status, respViemText);
 }
 

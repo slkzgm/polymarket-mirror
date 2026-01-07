@@ -1,11 +1,12 @@
 import { getAddress } from "viem";
 import { createTokenResolver } from "../clob/resolver";
 import type { AppConfig } from "../config";
-import { createGammaClient, createGammaResolver } from "../gamma";
+import { createCopyHandler } from "../copy";
 import type { EventBus } from "../events/bus";
+import { createGammaClient, createGammaResolver } from "../gamma";
 import type { Logger } from "../logger";
-import type { AppEvent } from "../types";
 import { computeFillForTarget } from "../onchain/decoder";
+import type { AppEvent } from "../types";
 
 const DISPLAY_DECIMALS = 6n;
 const DECIMAL_BASE = 10n ** DISPLAY_DECIMALS;
@@ -37,12 +38,12 @@ function formatReadableLines(args: {
 	hash?: string;
 	closed?: boolean;
 }): string[] {
-	const marketLabel =
-		args.marketTitle || args.marketSlug || "Unknown market";
+	const marketLabel = args.marketTitle || args.marketSlug || "Unknown market";
 	const side = args.side ?? "UNKNOWN";
 	const shares = formatUnits(args.tokenAmount);
 	const usdc = formatUnits(args.usdcAmount);
-	const closed = args.closed === undefined ? "" : args.closed ? " (closed)" : "";
+	const closed =
+		args.closed === undefined ? "" : args.closed ? " (closed)" : "";
 	const header = `${args.target} - ${marketLabel}${closed}`;
 	const body = `${side} ${shares} shares for ${usdc} USDC`;
 	const tail = args.hash ? `  hash: ${args.hash}` : undefined;
@@ -61,6 +62,7 @@ export function attachStrategy(
 		config.gammaApiKey,
 	);
 	const gammaResolver = createGammaResolver(gammaClient, logger);
+	const copyHandler = createCopyHandler(config, logger);
 
 	async function handleOnchainEvent(event: AppEvent) {
 		if (event.source !== "onchain") return;
@@ -79,20 +81,29 @@ export function attachStrategy(
 			return;
 		}
 
+		const decoded = (event as { decoded?: unknown }).decoded ?? null;
+		const breakdown = computeFillForTarget(decoded, TARGET_ADDRESS);
+
+		void copyHandler.handle({
+			hash,
+			tokenId: info.tokenId,
+			side: breakdown?.side ?? info.side ?? "UNKNOWN",
+			shares: breakdown?.shares ?? info.takerReceive ?? info.takerFill,
+			usdc: breakdown?.usdc ?? info.takerFill ?? info.takerReceive,
+		});
+
 		try {
 			const [resolved, market] = await Promise.all([
 				tokenResolver.resolve(info.tokenId),
 				gammaResolver.resolveByClobTokenId(info.tokenId),
 			]);
 
-			const breakdown = computeFillForTarget(
-				(event as { decoded?: unknown }).decoded ?? null,
-				TARGET_ADDRESS,
-			);
 			const shares =
-				breakdown?.shares ?? (info.takerReceive ? String(info.takerReceive) : undefined);
+				breakdown?.shares ??
+				(info.takerReceive ? String(info.takerReceive) : undefined);
 			const usdc =
-				breakdown?.usdc ?? (info.takerFill ? String(info.takerFill) : undefined);
+				breakdown?.usdc ??
+				(info.takerFill ? String(info.takerFill) : undefined);
 
 			if (config.logFormat === "readable") {
 				const lines = formatReadableLines({

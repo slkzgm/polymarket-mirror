@@ -3,12 +3,12 @@ import { polygon } from "viem/chains";
 import { createTokenResolver } from "../src/clob/resolver";
 import { loadConfig } from "../src/config";
 import { createGammaClient, createGammaResolver } from "../src/gamma";
+import { createLogger } from "../src/logger";
 import {
 	computeFillForTarget,
 	decodeMatchOrders,
 	inferRoleAndSide,
 } from "../src/onchain/decoder";
-import { createLogger } from "../src/logger";
 
 const TARGET_ADDRESS = getAddress("0x557bEd924A1bB6F62842C5742d1dc789B8D480d4");
 const DISPLAY_DECIMALS = 6n;
@@ -39,12 +39,12 @@ function formatReadableLines(args: {
 	hash?: string;
 	closed?: boolean;
 }): string[] {
-	const marketLabel =
-		args.marketTitle || args.marketSlug || "Unknown market";
+	const marketLabel = args.marketTitle || args.marketSlug || "Unknown market";
 	const side = args.side ?? "UNKNOWN";
 	const shares = formatUnits(args.tokenAmount);
 	const usdc = formatUnits(args.usdcAmount);
-	const closed = args.closed === undefined ? "" : args.closed ? " (closed)" : "";
+	const closed =
+		args.closed === undefined ? "" : args.closed ? " (closed)" : "";
 	const header = `${args.target} - ${marketLabel}${closed}`;
 	const body = `${side} ${shares} shares for ${usdc} USDC`;
 	const tail = args.hash ? `  hash: ${args.hash}` : undefined;
@@ -88,21 +88,23 @@ async function main() {
 	const takerReceive = decoded?.args?.[3];
 	const tokenId = info?.tokenId;
 
-	const makerOrders = (decoded?.args?.[1] ?? []) as Array<Record<string, unknown>>;
+	const makerOrders = (decoded?.args?.[1] ?? []) as Array<
+		Record<string, unknown>
+	>;
 	const makerFillAmounts = (decoded?.args?.[4] ?? []) as Array<bigint>;
 	const takerOrder = decoded?.args?.[0] as Record<string, unknown> | undefined;
 
 	const [tokenInfo, market] = await Promise.all([
 		tokenId ? tokenResolver.resolve(tokenId) : Promise.resolve(null),
-		tokenId ? gammaResolver.resolveByClobTokenId(tokenId) : Promise.resolve(null),
+		tokenId
+			? gammaResolver.resolveByClobTokenId(tokenId)
+			: Promise.resolve(null),
 	]);
 
 	const breakdown = computeFillForTarget(decoded, TARGET_ADDRESS);
 	const shares =
-		breakdown?.shares ??
-		(takerReceive ? String(takerReceive) : undefined);
-	const usdc =
-		breakdown?.usdc ?? (takerFill ? String(takerFill) : undefined);
+		breakdown?.shares ?? (takerReceive ? String(takerReceive) : undefined);
+	const usdc = breakdown?.usdc ?? (takerFill ? String(takerFill) : undefined);
 
 	const lines = formatReadableLines({
 		target: breakdown?.role ?? info?.role ?? "UNKNOWN",
